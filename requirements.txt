@@ -1,8 +1,0 @@
-flask==2.2.2
-pinecone-client==2.1.1
-openai==0.27.0
-speechrecognition==3.8.1
-python-docx==0.8.11
-PyPDF2==1.26.0
-elevenlabs==0.0.7
-numpy==1.23.0
