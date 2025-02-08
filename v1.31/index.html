@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Chat Assistant</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        .chat-container {
+            height: calc(100vh - 240px);
+        }
+        
+        .message {
+            max-width: 80%;
+            margin: 8px 0;
+            padding: 12px;
+            border-radius: 12px;
+            word-wrap: break-word;
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .user-message {
+            background-color: #e3f2fd;
+            margin-left: auto;
+        }
+        
+        .assistant-message {
+            background-color: #f5f5f5;
+            margin-right: auto;
+        }
+        
+        .loading-dots::after {
+            content: '...';
+            animation: loading 1.5s infinite;
+        }
+        
+        @keyframes loading {
+            0% { content: '.'; }
+            33% { content: '..'; }
+            66% { content: '...'; }
+        }
+        
+        .pdf-preview {
+            transition: all 0.3s ease;
+        }
+        
+        .control-button {
+            transition: all 0.2s ease;
+        }
+        
+        .control-button:hover {
+            transform: scale(1.1);
+        }
+        
+        .control-button:active {
+            transform: scale(0.95);
+        }
+        
+        .recording-pulse {
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        
+        .upload-progress {
+            width: 100%;
+            height: 4px;
+            background-color: #e2e8f0;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        
+        .upload-progress-bar {
+            height: 100%;
+            background-color: #3b82f6;
+            transition: width 0.3s ease;
+        }
+        
+        #errorToast {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 50;
+            transform: translateX(150%);
+            transition: transform 0.3s ease;
+        }
+        
+        #errorToast.show {
+            transform: translateX(0);
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <!-- Error Toast -->
+    <div id="errorToast" class="bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg">
+        <div class="flex items-center">
+            <i class="material-icons mr-2">error</i>
+            <span id="errorMessage">Error message here</span>
+        </div>
+    </div>
+
+    <div class="min-h-screen">
+        <!-- Header -->
+        <header class="bg-blue-600 text-white shadow-lg">
+            <div class="container mx-auto px-4 py-4">
+                <div class="flex justify-between items-center">
+                    <h1 class="text-2xl font-bold">Gemini Chat Assistant</h1>
+                    <div id="connectionStatus" class="flex items-center">
+                        <span class="w-3 h-3 rounded-full mr-2 bg-gray-400"></span>
+                        <span class="text-sm">Disconnected</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="container mx-auto px-4 py-8">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Left Column: PDF Upload and Preview -->
+                <div class="space-y-6">
+                    <!-- PDF Upload Section -->
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <h2 class="text-xl font-semibold mb-4">Document Upload</h2>
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-center w-full">
+                                <label class="flex flex-col w-full h-32 border-4 border-dashed hover:bg-gray-100 hover:border-blue-300 rounded-lg cursor-pointer transition-colors duration-200">
+                                    <div class="flex flex-col items-center justify-center pt-7">
+                                        <i class="material-icons text-4xl text-gray-400">cloud_upload</i>
+                                        <p class="pt-1 text-sm tracking-wider text-gray-400 group-hover:text-gray-600">
+                                            Upload PDF Document
+                                        </p>
+                                        <p class="text-xs text-gray-400 mt-2">Maximum file size: 10MB</p>
+                                    </div>
+                                    <input type="file" id="pdfInput" accept="application/pdf" class="hidden" />
+                                </label>
+                            </div>
+                            <div id="uploadProgress" class="hidden">
+                                <div class="upload-progress">
+                                    <div class="upload-progress-bar" style="width: 0%"></div>
+                                </div>
+                                <p id="uploadStatus" class="text-sm text-gray-500 text-center mt-2"></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PDF Preview -->
+                    <div id="pdf-container" class="hidden bg-white rounded-lg shadow-md overflow-hidden">
+                        <div class="p-4 border-b flex justify-between items-center">
+                            <h3 class="font-semibold">Document Preview</h3>
+                            <button id="closePdfPreview" class="text-gray-500 hover:text-gray-700">
+                                <i class="material-icons">close</i>
+                            </button>
+                        </div>
+                        <embed id="pdfPreview" type="application/pdf" class="w-full h-[600px]" />
+                    </div>
+                </div>
+
+                <!-- Right Column: Chat Interface -->
+                <div class="bg-white rounded-lg shadow-md flex flex-col">
+                    <!-- Chat Messages -->
+                    <div id="chatLog" class="chat-container overflow-y-auto p-6 flex-grow"></div>
+
+                    <!-- Voice Controls -->
+                    <div class="p-4 border-t bg-gray-50">
+                        <div class="flex items-center justify-center space-x-4">
+                            <button id="startButton" class="control-button bg-blue-600 text-white rounded-full p-3 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i class="material-icons">mic</i>
+                            </button>
+                            <button id="stopButton" class="control-button bg-red-600 text-white rounded-full p-3 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                                <i class="material-icons">mic_off</i>
+                            </button>
+                        </div>
+                        <div id="recordingStatus" class="text-center mt-2 text-sm text-gray-500"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const URL = "ws://localhost:9084";
+        let webSocket = null;
+        let audioContext = null;
+        let mediaRecorder = null;
+        let processor = null;
+        let pcmData = [];
+        let interval = null;
+        let initialized = false;
+        let audioInputContext;
+        let workletNode;
+        let isRecording = false;
+
+        // DOM Elements
+        const connectionStatus = document.getElementById('connectionStatus');
+        const connectionDot = connectionStatus.querySelector('span:first-child');
+        const connectionText = connectionStatus.querySelector('span:last-child');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const recordingStatus = document.getElementById('recordingStatus');
+        const errorToast = document.getElementById('errorToast');
+        const uploadProgress = document.getElementById('uploadProgress');
+        const uploadProgressBar = uploadProgress.querySelector('.upload-progress-bar');
+        const uploadStatus = document.getElementById('uploadStatus');
+        const pdfContainer = document.getElementById('pdf-container');
+        const pdfPreview = document.getElementById('pdfPreview');
+        const closePdfPreview = document.getElementById('closePdfPreview');
+
+        // Initialize the application
+        window.addEventListener("load", async () => {
+            try {
+                await initializeAudioContext();
+                await connect();
+                setupEventListeners();
+            } catch (error) {
+                showError("Failed to initialize application: " + error.message);
+            }
+        });
+
+        function setupEventListeners() {
+            // PDF Input handling
+            document.getElementById('pdfInput').addEventListener('change', handlePdfUpload);
+            
+            // Voice control buttons
+            startButton.addEventListener('click', startRecording);
+            stopButton.addEventListener('click', stopRecording);
+            
+            // PDF preview close button
+            closePdfPreview.addEventListener('click', () => {
+                pdfContainer.classList.add('hidden');
+            });
+        }
+
+        async function connect() {
+            try {
+                webSocket = new WebSocket(URL);
+                setupWebSocketHandlers();
+            } catch (error) {
+                showError("Failed to connect to server: " + error.message);
+                updateConnectionStatus(false);
+            }
+        }
+
+        function setupWebSocketHandlers() {
+            webSocket.onopen = () => {
+                updateConnectionStatus(true);
+                sendInitialSetupMessage();
+            };
+
+            webSocket.onclose = () => {
+                updateConnectionStatus(false);
+                setTimeout(connect, 5000); // Attempt to reconnect after 5 seconds
+            };
+
+            webSocket.onerror = (error) => {
+                showError("WebSocket error: " + error.message);
+                updateConnectionStatus(false);
+            };
+
+            webSocket.onmessage = receiveMessage;
+        }
+
+        function updateConnectionStatus(connected) {
+            connectionDot.className = `w-3 h-3 rounded-full mr-2 ${connected ? 'bg-green-500' : 'bg-red-500'}`;
+            connectionText.textContent = connected ? 'Connected' : 'Disconnected';
+            startButton.disabled = !connected;
+        }
+
+        async function handlePdfUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (file.size > 10 * 1024 * 1024) { // 10MB limit
+                showError("File size exceeds 10MB limit");
+                return;
+            }
+
+            uploadProgress.classList.remove('hidden');
+            uploadStatus.textContent = 'Uploading file...';
+            
+            try {
+                const base64Data = await readFileAsBase64(file);
+                await sendPdfToServer(base64Data, file.name);
+                
+                // Show preview
+                pdfPreview.src = URL.createObjectURL(file);
+                pdfContainer.classList.remove('hidden');
+                
+                uploadStatus.textContent = 'Upload complete!';
+                setTimeout(() => {
+                    uploadProgress.classList.add('hidden');
+                }, 2000);
+            } catch (error) {
+                showError("Failed to upload PDF: " + error.message);
+                uploadStatus.textContent = 'Upload failed';
+            }
+        }
+
+        function readFileAsBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function sendPdfToServer(base64Data, filename) {
+            const payload = {
+                realtime_input: {
+                    media_chunks: [{
+                        mime_type: "application/pdf",
+                        data: base64Data,
+                        filename: filename
+                    }]
+                }
+            };
+
+            if (webSocket?.readyState === WebSocket.OPEN) {
+                await webSocket.send(JSON.stringify(payload));
+            } else {
+                throw new Error("WebSocket is not connected");
+            }
+        }
+
+        async function startRecording() {
+            try {
+                if (!audioContext) {
+                    audioContext = new AudioContext({ sampleRate: 16000 });
+                }
+
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: { channelCount: 1, sampleRate: 16000 }
+                });
+
+                const source = audioContext.createMediaStreamSource(stream);
+                processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+                processor.onaudioprocess = handleAudioProcess;
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+
+                interval = setInterval(sendAudioChunk, 3000);
+                isRecording = true;
+                
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                recordingStatus.textContent = "Recording...";
+                startButton.classList.add('recording-pulse');
+            } catch (error) {
+                showError("Failed to start recording: " + error.message);
+            }
+        }
+
+        function stopRecording() {
+            if (processor) {
+                processor.disconnect();
+                processor = null;
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+
+            clearInterval(interval);
+            isRecording = false;
+            pcmData = [];
+            
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            recordingStatus.textContent = "";
+            startButton.classList.remove('recording-pulse');
+        }
+
+        function handleAudioProcess(e) {
+            const inputData = e.inputBuffer.getChannelData(0);
+            const pcm16 = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+                pcm16[i] = inputData[i] * 0x7fff;
+            }
+            pcmData.push(...pcm16);
+        }
+
+        function sendAudioChunk() {
+            if (pcmData.length === 0) return;
+
+            const buffer = new ArrayBuffer(pcmData.length * 2);
+            const view = new DataView(buffer);
+            pcmData.forEach((value, index) => {view.setInt16(index * 2, value, true);
+            });
+
+            const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(buffer)));
+            sendVoicePayload(base64);
+            pcmData = [];
+        }
+
+        function sendVoicePayload(base64Data) {
+            if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
+                showError("WebSocket connection lost");
+                stopRecording();
+                return;
+            }
+
+            const payload = {
+                realtime_input: {
+                    media_chunks: [{
+                        mime_type: "audio/pcm",
+                        data: base64Data,
+                    }]
+                }
+            };
+
+            try {
+                webSocket.send(JSON.stringify(payload));
+            } catch (error) {
+                showError("Failed to send audio data: " + error.message);
+                stopRecording();
+            }
+        }
+
+        function sendInitialSetupMessage() {
+            const setup_client_message = {
+                setup: {
+                    generation_config: { response_modalities: ["AUDIO"] },
+                }
+            };
+
+            try {
+                webSocket.send(JSON.stringify(setup_client_message));
+            } catch (error) {
+                showError("Failed to send setup message: " + error.message);
+            }
+        }
+
+        async function initializeAudioContext() {
+            if (initialized) return;
+
+            try {
+                audioInputContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 24000
+                });
+                
+                await audioInputContext.audioWorklet.addModule("pcm-processor.js");
+                workletNode = new AudioWorkletNode(audioInputContext, "pcm-processor");
+                workletNode.connect(audioInputContext.destination);
+                initialized = true;
+            } catch (error) {
+                showError("Failed to initialize audio context: " + error.message);
+                throw error;
+            }
+        }
+
+        function receiveMessage(event) {
+            try {
+                const messageData = JSON.parse(event.data);
+                const response = new Response(messageData);
+
+                if (response.text) {
+                    addMessageToChat("GEMINI", response.text);
+                }
+                if (response.audioData) {
+                    processAudioResponse(response.audioData);
+                }
+            } catch (error) {
+                showError("Failed to process message: " + error.message);
+            }
+        }
+
+        function addMessageToChat(sender, text) {
+            const chatLog = document.getElementById('chatLog');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender === 'GEMINI' ? 'assistant-message' : 'user-message'}`;
+            messageDiv.textContent = text;
+            chatLog.appendChild(messageDiv);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        }
+
+        async function processAudioResponse(base64AudioData) {
+            try {
+                if (audioInputContext.state === "suspended") {
+                    await audioInputContext.resume();
+                }
+
+                const arrayBuffer = base64ToArrayBuffer(base64AudioData);
+                const float32Data = convertPCM16LEToFloat32(arrayBuffer);
+                workletNode.port.postMessage(float32Data);
+            } catch (error) {
+                showError("Failed to process audio response: " + error.message);
+            }
+        }
+
+        function base64ToArrayBuffer(base64) {
+            const binaryString = window.atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function convertPCM16LEToFloat32(pcmData) {
+            const inputArray = new Int16Array(pcmData);
+            const float32Array = new Float32Array(inputArray.length);
+
+            for (let i = 0; i < inputArray.length; i++) {
+                float32Array[i] = inputArray[i] / 32768;
+            }
+
+            return float32Array;
+        }
+
+        function showError(message) {
+            const errorToast = document.getElementById('errorToast');
+            const errorMessage = document.getElementById('errorMessage');
+            errorMessage.textContent = message;
+            errorToast.classList.add('show');
+
+            setTimeout(() => {
+                errorToast.classList.remove('show');
+            }, 5000);
+        }
+
+        class Response {
+            constructor(data) {
+                this.text = data.text || null;
+                this.audioData = data.audio || null;
+                this.endOfTurn = data.endOfTurn || null;
+            }
+        }
+
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && isRecording) {
+                stopRecording();
+            }
+        });
+
+        // Handle window unload
+        window.addEventListener('beforeunload', () => {
+            if (isRecording) {
+                stopRecording();
+            }
+            if (webSocket) {
+                webSocket.close();
+            }
+        });
+    </script>
+</body>
+</html>
